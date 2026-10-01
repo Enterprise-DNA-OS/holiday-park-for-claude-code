@@ -1,11 +1,67 @@
 [
   {
-    "name": "example",
-    "title": "TODO(author): the first document this industry must produce",
-    "for_each": "select gen_random_uuid() as id, 'Example' as name",
+    "name": "tax-invoice",
+    "title": "Tax invoice",
+    "for_each": "select id, number from invoices where issued_on > park_today() - 30 order by number",
+    "file": "number",
+    "sections": [
+      { "title": "Invoice", "sql": "select i.number as \"invoice\", i.issued_on as \"date\", s.business_name as \"from\", case when s.country = 'NZ' then 'GST number ' else 'ABN ' end || s.gst_number as \"tax number\", g.name as \"to\", nullif(concat_ws(', ', nullif(g.company, ''), nullif(g.address, ''), nullif(g.email, ''), nullif(g.business_number, '')), '') as \"guest details\", b.ref as \"booking\" from invoices i join bookings b on b.id = i.booking_id join guests g on g.id = b.guest_id cross join settings s where i.id = $1" },
+      { "title": "Accommodation", "sql": "select coalesce(si.name, t.name) as \"site\", n.rate_plan as \"rate\", min(n.night_on) as \"from\", max(n.night_on) + 1 as \"to\", count(*) as nights, round(n.rate_cents / 100.0, 2) as \"per night\", round(sum(n.rate_cents) / 100.0, 2) as amount from booking_nights n join invoices i on i.booking_id = n.booking_id join bookings b on b.id = n.booking_id join site_types t on t.id = b.site_type_id left join sites si on si.id = b.site_id where i.id = $1 group by si.name, t.name, n.rate_plan, n.rate_cents order by 3" },
+      { "title": "Other charges", "sql": "select x.posted_on as \"date\", x.description, round(x.amount_cents / 100.0, 2) as amount from charges x join invoices i on i.booking_id = x.booking_id where i.id = $1 order by x.posted_on" },
+      { "title": "Total", "note": "Amounts include GST. Where the law sets a reduced value for long stays, GST is worked out on that value.", "sql": "select s.currency, round(f.total_cents / 100.0, 2) as \"total including GST\", round(f.gst_cents / 100.0, 2) as \"GST included\", round(f.paid_cents / 100.0, 2) as paid, round(f.balance_cents / 100.0, 2) as \"balance owing\" from invoices i join v_folio f on f.id = i.booking_id cross join settings s where i.id = $1" },
+      { "title": "Payments received", "sql": "select p.paid_on as \"date\", p.method, p.reference, round(p.amount_cents / 100.0, 2) as amount from payments p join invoices i on i.booking_id = p.booking_id where i.id = $1 order by p.paid_on" }
+    ]
+  },
+  {
+    "name": "site-account-statement",
+    "title": "Site account statement",
+    "for_each": "select a.id, a.ref || ' ' || g.name as name from agreements a join guests g on g.id = a.guest_id where a.status = 'active' order by a.ref",
     "file": "name",
     "sections": [
-      { "title": "Details", "sql": "select 'replace me' as item, $1::text as record_id" }
+      { "title": "Your agreement", "sql": "select a.ref as agreement, a.guest as occupant, a.site, a.kind, a.starts_on as \"since\", a.currency, round(a.fee_cents / 100.0, 2) as \"site fee\", a.fee_period as \"per\", a.billed_to as \"billed up to\", s.business_name as \"from\", case when s.country = 'NZ' then 'GST number ' else 'ABN ' end || s.gst_number as \"tax number\" from v_agreements a cross join settings s where a.id = $1" },
+      { "title": "Last 90 days", "sql": "select l.posted_on as \"date\", l.description, case when l.amount_cents > 0 then round(l.amount_cents / 100.0, 2) end as charged, case when l.amount_cents < 0 then round(-l.amount_cents / 100.0, 2) end as paid, l.reference from account_lines l where l.agreement_id = $1 and l.posted_on > park_today() - 90 order by l.posted_on, l.amount_cents < 0, l.created_at" },
+      { "title": "Balance", "note": "A positive balance is owing to the park; a negative balance is in credit. Please pay by [bank account], quoting your agreement number.", "sql": "select currency, round(charged_cents / 100.0, 2) as \"charged to date\", round(paid_cents / 100.0, 2) as \"paid to date\", round(balance_cents / 100.0, 2) as \"balance\", last_paid_on as \"last payment\" from v_agreements where id = $1" },
+      { "title": "Power", "sql": "select r.read_on as \"reading date\", r.kwh as \"meter (kWh)\", r.kwh - lag(r.kwh) over (order by r.read_on) as \"used (kWh)\" from meter_readings r join agreements a on a.site_id = r.site_id where a.id = $1 and r.read_on >= a.starts_on order by r.read_on desc limit 6" }
+    ]
+  },
+  {
+    "name": "arrival-card",
+    "title": "Arrival card",
+    "for_each": "select b.id, b.ref from bookings b where b.status = 'confirmed' and b.arrive_on between park_today() and park_today() + 1 order by b.arrive_on, b.ref",
+    "file": "ref",
+    "sections": [
+      { "title": "Your stay", "sql": "select v.ref as booking, v.guest, v.site_type as \"site type\", coalesce(v.site, '') as site, v.area, v.arrive_on as arrival, v.depart_on as departure, v.nights, v.adults, v.children, round(v.total_cents / 100.0, 2) as \"total including GST\", round(v.balance_cents / 100.0, 2) as \"to pay\" from v_bookings v where v.id = $1" },
+      { "title": "Your details", "note": "Please check and complete. We use these details for your stay, your tax invoice and to know who is on site in an emergency.", "sql": "select g.name, g.email, g.phone, g.address, g.country, b.vehicle_rego as \"vehicle registration\", b.van_length_m as \"van length (m)\", '' as \"signature\" from bookings b join guests g on g.id = b.guest_id where b.id = $1" },
+      { "title": "Park times", "sql": "select s.check_in_time as \"check-in from\", s.check_out_time as \"check-out by\", b.requests, b.eta as \"arrival time\" from bookings b cross join settings s where b.id = $1" }
+    ]
+  },
+  {
+    "name": "cabin-cleaning-sheet",
+    "title": "Cabin cleaning sheet",
+    "for_each": "select distinct area as id, coalesce(nullif(area, ''), 'All cabins') as name from v_site_status where site_kind in ('cabin', 'unit')",
+    "file": "name",
+    "sections": [
+      { "title": "Cabins and units", "note": "Cabins with a guest arriving first. Tick each when done and return the sheet to the office.", "sql": "select site as cabin, status, job, departs, arriving, eta, '' as \"done by\" from v_site_status where site_kind in ('cabin', 'unit') and area = $1 order by case when job like 'clean now%' then 0 when job like 'check-out%' then 1 when job = 'stayover tidy' then 2 else 3 end, sort" }
+    ]
+  },
+  {
+    "name": "on-site-register",
+    "title": "On-site register: who is in the park tonight",
+    "for_each": "select 'tonight' as id, park_today()::text as name",
+    "file": "name",
+    "sections": [
+      { "title": "Casual guests", "note": "Print at the night audit and keep at the assembly point with your emergency procedure. Tick each party once they are accounted for.", "sql": "select v.site, v.guest, v.adults, v.children, g.phone, v.vehicle_rego as rego, v.depart_on as departs, '' as \"accounted for\" from v_bookings v join guests g on g.id = v.guest_id where v.status = 'checked_in' and $1::text is not null order by v.site" },
+      { "title": "Long-stay occupants", "sql": "select a.site, a.guest as occupant, a.occupants as people, g.phone, ag.vehicle_rego as rego, a.kind, '' as \"accounted for\" from v_agreements a join guests g on g.id = a.guest_id join agreements ag on ag.id = a.id where a.status = 'active' and a.starts_on <= park_today() and $1::text is not null order by a.site" },
+      { "title": "Arriving later tonight", "sql": "select coalesce(v.site, 'not assigned') as site, v.guest, v.adults, v.children, b.eta from v_bookings v join bookings b on b.id = v.id where v.status = 'confirmed' and v.arrive_on = park_today() and $1::text is not null order by v.site" }
+    ]
+  },
+  {
+    "name": "meter-sheet",
+    "title": "Meter reading sheet",
+    "for_each": "select 'meters' as id, park_today()::text as name",
+    "file": "name",
+    "sections": [
+      { "title": "Metered long-stay sites", "note": "Write the reading in kWh and the date. Enter each one with read-meter, then run bill-power.", "sql": "select site, guest as occupant, last_read_on as \"last read\", last_kwh as \"last reading\", state, '' as \"today's reading\" from v_meters where $1::text is not null order by site" }
     ]
   }
 ]

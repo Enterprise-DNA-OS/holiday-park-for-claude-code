@@ -1,14 +1,34 @@
 [
   {
-    "name": "week",
-    "title": "This week",
-    "subtitle": "Holiday Park for Claude Code: what needs attention, rendered by npm run view",
+    "name": "today",
+    "title": "The park office today",
+    "subtitle": "Arrivals, departures, the site board, cabins and anything that needs a decision",
     "sections": [
-      {
-        "title": "Needs attention",
-        "note": "TODO(author): point this at the industry's attention view (overdue, stuck, quiet).",
-        "sql": "select 'replace me' as item, 'TODO(author)' as why"
-      }
+      { "title": "Needs attention", "note": "Unassigned arrivals, double bookings, vans too long, balances owing, overdue deposits, missing invoices, cabins not ready, long-stay accounts behind, meters due.", "sql": "select reason, ref, guest, detail from v_attention order by reason, ref" },
+      { "title": "Arrivals today and tomorrow", "sql": "select case when v.arrive_on = park_today() then 'today' else 'tomorrow' end as day, v.ref, v.guest, v.site_type as \"site type\", coalesce(v.site, 'not assigned') as site, v.nights, v.van_length_m as \"van (m)\", b.eta, v.channel, round(v.balance_cents / 100.0, 2) as balance from v_bookings v join bookings b on b.id = v.id where v.status = 'confirmed' and v.arrive_on between park_today() and park_today() + 1 order by v.arrive_on, v.site nulls first" },
+      { "title": "Departures today", "sql": "select ref, guest, site, round(balance_cents / 100.0, 2) as balance from v_bookings where status = 'checked_in' and depart_on <= park_today() order by site" },
+      { "title": "Cabins", "note": "Cabins with a guest arriving come first.", "sql": "select site as cabin, status, job, in_house as \"in house\", arriving, eta from v_site_status where site_kind in ('cabin', 'unit') order by case when job like 'clean now%' then 0 when job like 'check-out%' then 1 when job = 'stayover tidy' then 2 else 3 end, sort" },
+      { "title": "Site board tonight", "sql": "select site, site_type as \"site type\", area, job as tonight, coalesce(in_house, long_stay, '') as who, arriving from v_site_status order by sort" }
+    ]
+  },
+  {
+    "name": "long-stays",
+    "title": "Long stays",
+    "subtitle": "Permanent residents, annual vans and seasonal workers: accounts, meters and paperwork",
+    "sections": [
+      { "title": "Agreements", "sql": "select ref, kind, guest as occupant, site, starts_on as since, ends_on as ends, days_on_site as \"days on site\", round(fee_cents / 100.0, 2) as fee, fee_period as per, billed_to as \"billed to\", round(balance_cents / 100.0, 2) as balance, case when written_agreement and signed_on is not null then 'signed' else 'not signed' end as paperwork, coalesce(nullif(tenancy_law, ''), 'not decided') as law from v_agreements where status = 'active' order by site" },
+      { "title": "Behind on their account", "sql": "select ref, guest as occupant, site, round(balance_cents / 100.0, 2) as owing, days_behind as \"days of fees\", last_paid_on as \"last paid\" from v_arrears where status = 'active' order by days_behind desc" },
+      { "title": "Meters", "sql": "select site, guest as occupant, last_read_on as \"last read\", last_kwh as \"last kWh\", unbilled_kwh as \"unbilled kWh\", round(unbilled_cents / 100.0, 2) as unbilled, state from v_meters order by site" },
+      { "title": "Record checks", "note": "Rules and sources in docs/compliance.md. Nothing here is legal advice.", "sql": "select rule, ref, guest, finding from v_compliance order by rule, ref" }
+    ]
+  },
+  {
+    "name": "performance",
+    "title": "Occupancy, rate and channels",
+    "subtitle": "The last twelve months and what is on the books",
+    "sections": [
+      { "title": "Occupancy by month", "note": "Occupancy counts every site night, casual and long-stay. Casual occupancy leaves out the sites held by long-stay agreements. Average rate is casual revenue per night sold.", "sql": "select month, case when on_books then 'on the books' else 'actual' end as basis, site_nights as \"site nights\", casual_nights as \"casual nights\", held_nights as \"long-stay nights\", occupancy_pct as \"occupancy %\", casual_occupancy_pct as \"casual occupancy %\", round(casual_revenue_cents / 100.0, 2) as \"casual revenue\", round(average_rate_cents / 100.0, 2) as \"average rate\" from v_occupancy where casual_nights > 0 or on_books order by month" },
+      { "title": "Channels after commission", "note": "Twelve months of arrivals. Commission uses each channel's rate on the record.", "sql": "select channel, kind, bookings, nights, round(revenue_cents / 100.0, 2) as revenue, round(commission_cents / 100.0, 2) as commission, round(net_cents / 100.0, 2) as net, avg_lead_days as \"avg lead days\", cancelled from v_channel_mix order by net_cents desc" }
     ]
   }
 ]

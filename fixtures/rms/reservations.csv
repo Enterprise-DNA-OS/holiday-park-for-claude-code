@@ -1,0 +1,6 @@
+Res No,Surname,Given,Email,Mobile,Arrive,Depart,Category,Area,Adults,Children,Booking Source,Status,Accommodation,Paid,Made Date,Rego,Long Term
+30001,Keller,Anna,anna.k@example.com,021 555 0401,12/03/2028,15/03/2028,Powered site,P3,2,0,Booking.com,Confirmed,$162.00,0.00,01/02/2028,KLR1,No
+30002,Clarke,Emma,emma.clarke@example.com,,20/03/2028,22/03/2028,Standard cabin,,2,1,Booking Engine,Confirmed,220.00,55.00,05/02/2028,,No
+30003,Ford,Kevin,,,02/11/2025,04/11/2025,Glamping Tent,,2,0,Airbnb,Departed,"1,000.00",1000.00,01/10/2025,,No
+30004,Baker,Tom,tom.b@example.com,,10/04/2028,13/04/2028,Powered site,P4,1,0,Expedia,Cancelled,0.00,0.00,03/02/2028,,No
+30005,Hughes,Dot,dot.h@example.com,03 555 0405,01/03/2028,30/06/2028,Powered site,,1,0,Phone,Confirmed,"6,000.00",0.00,15/01/2028,DTH5,Yes
